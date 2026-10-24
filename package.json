@@ -1,0 +1,50 @@
+{
+  "name": "dsh-file-tracker",
+  "version": "0.2.0",
+  "private": false,
+  "description": "文件活动监视器：宿主半边聚合 agent 动过的文件/目录（write/edit/shell 工具调用），客户端半边在右上角 ··· 菜单里提供\"动过的目录\"与时间线面板 / A DSH plugin that shows which files and directories the agent touched",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "file-activity",
+    "directory-watch"
+  ],
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "install-profile.ps1",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mys12word/dsh-file-tracker.git"
+  },
+  "homepage": "https://github.com/Mys12word/dsh-file-tracker#readme",
+  "bugs": {
+    "url": "https://github.com/Mys12word/dsh-file-tracker/issues"
+  },
+  "author": "Mysword"
+}

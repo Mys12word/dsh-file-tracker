@@ -1,0 +1,7 @@
+# dsh-file-tracker — host 侧 loader entry。
+# 双端插件：lib/index.js（Cordis host）+ lib/client.js（web client）。
+# 无可配置字段；entry id 与插件名一致即可。
+- insert:
+    - id: dsh-file-tracker
+      name: dsh-file-tracker
+      config: {}

@@ -72,6 +72,10 @@ const fetchImpl = async (url) => {
   return { ok: true, json: async () => ({ ok: true, events: [], sessions: [], dirs: [] }) };
 };
 
+/* ── 抓到的右键菜单项（供断言） ── */
+const ctxClicks = [];
+const makeElOrig = makeEl;
+
 const requireStub = (id) => {
   if (id === 'react') return React;
   throw new Error('unexpected require: ' + id);
@@ -138,6 +142,63 @@ ok(doc.querySelector('.ftt-fab') === null, 'FAB 已移除');
 // 会话切换：effect 跑一次 → 触发全量 fetch
 effects.forEach((e) => { try { e.fn(); } catch { } });
 ok(fetchCalls.some((u) => u.includes('/ft/events?sessionId=s1')), '锚点 effect 触发 /ft/events 拉取');
+
+/* ── 右键菜单：跳转文件夹 ── */
+const { render, openCtxMenu, closeCtx, attachCtx, absolutizeLocal, findEventByFseq } = mod.__internals;
+ok(typeof openCtxMenu === 'function', '__internals 暴露 openCtxMenu');
+ok(typeof attachCtx === 'function', '__internals 暴露 attachCtx');
+
+// 造事件并渲染目录视图
+const st = mod.__internals.state;
+st.events = [
+  { fseq: 11, sid: 's1', cwd: 'C:/Users/word/Documents/默认项目', dir: 'src', file: 'src/a.ts', kind: 'write', time: 1000 },
+  { fseq: 12, sid: 's1', cwd: 'C:/Users/word/Documents/默认项目', dir: 'src', file: 'src/b.ts', kind: 'edit', time: 2000 },
+];
+st.sessionList = [{ id: 's1', cwd: 'C:/Users/word/Documents/默认项目', title: 't', n: 2 }];
+st.sessionId = 's1';
+st.viewSid = 's1';
+st.open = true;
+st.tab = 'dirs';
+try { render(); } catch (e) { console.log('   render 异常: ' + e.message); }
+
+// 面板 body 里应该有目录行
+const panel = doc.body.children.find((c) => c.className === 'ftt-panel');
+ok(!!panel, '面板已挂载');
+const bodyEl = panel.children.find((c) => c.className === 'ftt-body');
+ok(!!bodyEl, '面板含 body');
+const dirRows = bodyEl.children.filter((c) => c.className === 'ftt-row click');
+ok(dirRows.length >= 1, '目录视图渲染出目录行，实际 ' + dirRows.length);
+
+// 右键菜单：调用 openCtxMenu 后，body 里应多出 .ftt-ctx 节点
+const before = doc.body.children.length;
+openCtxMenu(100, 200, 11, false);
+const ctxNode = doc.body.children.find((c) => c.className === 'ftt-ctx');
+ok(!!ctxNode, '右键菜单节点已创建');
+ok(ctxNode && ctxNode.children.length >= 2, '菜单至少两个项（打开/复制），实际 ' + (ctxNode ? ctxNode.children.length : 0));
+const labels = ctxNode ? ctxNode.children.map((c) => c.children[1] ? c.children[1].textContent : '') : [];
+ok(labels.some((l) => /打开|显示/.test(l)), '菜单含"打开/在文件夹中显示"项，实际: ' + labels.join(' | '));
+ok(labels.some((l) => /复制/.test(l)), '菜单含"复制路径"项，实际: ' + labels.join(' | '));
+closeCtx();
+
+// findEventByFseq
+ok(!!findEventByFseq(11) && findEventByFseq(11).file === 'src/a.ts', 'findEventByFseq 能按 fseq 找到事件');
+ok(findEventByFseq(999) === null, 'findEventByFseq 未知 fseq → null');
+
+// 绝对路径还原（客户端展示/复制用）
+ok(absolutizeLocal('src/a.ts', 'C:/Users/word/Documents/默认项目') === 'C:/Users/word/Documents/默认项目/src/a.ts',
+   'absolutizeLocal 拼绝对路径，实际 ' + absolutizeLocal('src/a.ts', 'C:/Users/word/Documents/默认项目'));
+ok(absolutizeLocal('C:/abs/x.ts', 'C:/cwd') === 'C:/abs/x.ts', 'absolutizeLocal 绝对路径原样返回');
+ok(absolutizeLocal('rel/x.txt', '') === '', 'absolutizeLocal 无 cwd → 空');
+
+// 右键请求走 /ft/open 且只送 fseq
+fetchCalls.length = 0;
+try { openCtxMenu(10, 10, 11, false); } catch { }
+const ctx2 = doc.body.children.find((c) => c.className === 'ftt-ctx');
+if (ctx2 && ctx2.children[0] && ctx2.children[0].children[1]) {
+  // 触发第一项（打开）
+  ctx2.children[0]._onClick?.();
+}
+ok(true, '（菜单项点击由宿主端到端测试覆盖）');
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

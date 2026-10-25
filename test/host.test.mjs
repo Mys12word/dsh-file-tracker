@@ -122,6 +122,70 @@ const r4 = await call('/ft/events?sessionId=session-nocwd&after=0');
 const j4 = JSON.parse(r4.body);
 ok(j4.ok && j4.events.length === 1 && j4.events[0].file === 'rel/x.txt', '空 cwd 相对路径正常');
 
+// ── /ft/open：右键跳转文件夹 ────────────────────────────────
+function callPost(url) {
+  return new Promise((resolve) => {
+    const res = {
+      status: 0, headers: null, body: '',
+      writeHead(s, h) { res.status = s; res.headers = h; },
+      end(b) { res.body = b || ''; resolve(res); },
+    };
+    registered.handler({ method: 'POST', url, headers: { host: '127.0.0.1:19387' } }, res);
+  });
+}
+
+// 造一个真实存在的目录与文件，让 existsSync 能过
+const OPEN_ROOT = path.join(TMP_HOME, 'open-target');
+fs.mkdirSync(path.join(OPEN_ROOT, 'sub'), { recursive: true });
+fs.writeFileSync(path.join(OPEN_ROOT, 'sub', 'x.txt'), 'hello', 'utf8');
+// 事件的 cwd 指向这个真实目录
+const openSession = { id: 'session-open', header: { cwd: OPEN_ROOT.replace(/\\/g, '/') } };
+for (const [t, fn] of listeners) {
+  if (t === 'session/event') {
+    fn(openSession, {
+      type: 'tool/call', seq: 20, time: t0,
+      data: { turn: 1, step: 1, callId: 'co1', name: 'write', arguments: JSON.stringify({ file_path: OPEN_ROOT.replace(/\\/g, '/') + '/sub/x.txt' }) },
+    });
+  }
+}
+const openEvents = JSON.parse((await call('/ft/events?sessionId=session-open&after=0')).body).events;
+ok(openEvents.length === 1, 'open 会话 1 条事件');
+const openFseq = openEvents[0].fseq;
+
+// 未知的 fseq → 404（客户端不能凭空指定路径）
+const ro1 = await callPost('/ft/open?fseq=999999');
+ok(ro1.status === 404, '未知 fseq → 404');
+ok(JSON.parse(ro1.body).code === 'unknown-event', '未知 fseq code=unknown-event');
+
+// 目录不存在 → 404 not-found
+const ro2 = await callPost('/ft/open?fseq=1&dir=1');
+ok(ro2.status === 404, '不存在的路径 → 404，实际 ' + ro2.status);
+ok(JSON.parse(ro2.body).code === 'not-found', '不存在路径 code=not-found');
+
+// 非 POST（GET）→ 404
+const ro3 = await call('/ft/open?fseq=' + openFseq);
+ok(ro3.status === 404, 'GET /ft/open → 404（只接受 POST）');
+
+// 非 loopback Host → 403
+const ro4 = await new Promise((resolve) => {
+  const res = { writeHead(s) { res.status = s; }, end(b) { res.body = b; resolve(res); } };
+  registered.handler({ method: 'POST', url: '/ft/open?fseq=' + openFseq, headers: { host: 'evil.example:80' } }, res);
+});
+ok(ro4.status === 403, '/ft/open 非 loopback Host → 403');
+
+// 真实存在的目录 → 宿主会尝试启动文件管理器。
+// 在 CI/沙箱里 explorer 可能起不来，这里只断言"没有被路径栅栏拦下"
+// （即不是 404 not-found / 403 / unknown-event）。
+const ro5 = await callPost('/ft/open?fseq=' + openFseq + '&dir=1');
+const jo5 = JSON.parse(ro5.body);
+ok(ro5.status !== 403 && jo5.code !== 'unknown-event' && jo5.code !== 'not-found',
+   '存在的目录不被路径栅栏拦下，status=' + ro5.status + ' code=' + jo5.code);
+if (ro5.status === 200) {
+  ok(jo5.target && jo5.target.replace(/\\/g, '/').endsWith('/sub'), '打开目标解析正确: ' + jo5.target);
+} else {
+  console.log('   （本次环境未能启动文件管理器，宿主返回 code=' + jo5.code + '，属环境限制而非栅栏问题）');
+}
+
 // 未知路径 404
 const r5 = await call('/ft/nope');
 ok(r5.status === 404, '未知路径 404');
@@ -136,7 +200,7 @@ ok(r6.status === 403, '非 loopback Host → 403');
 const file = path.join(TMP_HOME, 'file-tracker', 'events.jsonl');
 ok(fs.existsSync(file), 'events.jsonl 已生成');
 const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
-ok(lines.length === 5, '落盘 5 行（4 + 空cwd 1），实际 ' + lines.length);
+ok(lines.length === 6, '落盘 6 行（4 + 空cwd 1 + open 会话 1），实际 ' + lines.length);
 const first = JSON.parse(lines[0]);
 ok(first.sid === 'session-test' && typeof first.fseq === 'number', '落盘行含 fseq/sid');
 
